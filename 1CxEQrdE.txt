@@ -1,0 +1,934 @@
+-- [#==# Settings #==#] 
+local blacklist = {"vuInerablety","gorferss"}
+local saveOnlyBlacklist = {"Dan_Krystal"}
+
+local split = true
+local maxtargets = 3
+local rotationspeed = 2
+
+local plrs = game:GetService("Players")
+local rs = game:GetService("RunService")
+local lplr = plrs.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local StarterGui = game:GetService("StarterGui")
+
+local savedPlayers = {}
+local selectedForKill = {}
+local activeDomes = {}
+
+SaveNickBtn = nil
+
+-- Функция обновления кнопки Save
+local function updateSaveButton()
+    if not SaveNickBtn then return end
+    local savedList = {}
+    for name, _ in pairs(savedPlayers) do
+        table.insert(savedList, name)
+    end
+    if #savedList > 0 then
+        local display = savedList[1] or ""
+        if #savedList > 1 then
+            display = display .. ", " .. (savedList[2] or "")
+        end
+        if #savedList > 2 then
+            display = display .. " и тд"
+        end
+        SaveNickBtn.Text = "Saved: " .. display
+        SaveNickBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+    else
+        SaveNickBtn.Text = "Save \"Nicname\""
+        SaveNickBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    end
+end
+
+-- Создание купола для игрока
+local function createDomeForPlayer(player)
+    if activeDomes[player.Name] then return end
+    if not player.Character then return end
+    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local visual = Instance.new("Part")
+    visual.Shape = Enum.PartType.Ball
+    visual.Size = Vector3.new(10, 10, 10)
+    visual.Transparency = 0.7
+    visual.Color = Color3.fromRGB(0, 150, 255)
+    visual.Material = Enum.Material.ForceField
+    visual.CanCollide = false
+    visual.Anchored = true
+    visual.Parent = workspace
+
+    local physical = Instance.new("Part")
+    physical.Shape = Enum.PartType.Ball
+    physical.Size = Vector3.new(10, 10, 10)
+    physical.Transparency = 1
+    physical.CanCollide = true
+    physical.Anchored = true
+    physical.Parent = workspace
+
+    activeDomes[player.Name] = {visual = visual, physical = physical, player = player}
+end
+
+local function removeDome(name)
+    local dome = activeDomes[name]
+    if dome then
+        if dome.visual then dome.visual:Destroy() end
+        if dome.physical then dome.physical:Destroy() end
+        activeDomes[name] = nil
+    end
+end
+
+-- ===== СИСТЕМНАЯ ЧАСТЬ =====
+if not getgenv().Network then
+    getgenv().Network = {
+        bp = {},
+        Velocity = Vector3.new((math.pi*4.6)+(math.sqrt(25)/2)-(math.cos(2.4)*3.1),(math.pi*4.6)+(math.sqrt(25)/2)-(math.cos(2.4)*3.1),(math.pi*4.6)+(math.sqrt(25)/2)-(math.cos(2.4)*3.1))
+    }
+    Network.Retain = function(p)
+        if typeof(p) == "Instance" and p:IsA("BasePart") and p:IsDescendantOf(workspace) and not p.Anchored then
+            table.insert(Network.bp, p)
+            p.CustomPhysicalProperties = PhysicalProperties.new(0,0,0,0,0)
+            p.CanCollide = false
+        end
+    end
+    local function epc()
+        lplr.ReplicationFocus = workspace
+        rs.Heartbeat:Connect(function()
+            sethiddenproperty(lplr, "SimulationRadius", math.huge)
+            for _, p in pairs(Network.bp) do
+                if p:IsDescendantOf(workspace) and not p.Anchored then
+                    p.Velocity = Network.Velocity
+                end
+            end
+        end)
+    end
+    epc()
+end
+
+local targetName = ""
+local enabled = false
+local parts = {}
+local connection = nil
+local currentTargetIndex = 1
+local lastRotation = 0
+
+-- ===== УВЕДОМЛЕНИЯ О ДРУЗЬЯХ =====
+local function notifyFriend(player)
+    local isFriend = false
+    pcall(function()
+        isFriend = lplr:IsFriendsWith(player.UserId)
+    end)
+
+    if isFriend then
+        local thumb = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=150&h=150"
+        
+        local ScreenGui = Instance.new("ScreenGui")
+        ScreenGui.Name = "FriendNotify"
+        ScreenGui.Parent = lplr:WaitForChild("PlayerGui")
+        ScreenGui.ResetOnSpawn = false
+        ScreenGui.DisplayOrder = 1001
+
+        local Main = Instance.new("Frame")
+        Main.Size = UDim2.new(0, 280, 0, 80)
+        Main.Position = UDim2.new(1, 20, 0, 20)
+        Main.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+        Main.BorderSizePixel = 0
+        Main.Parent = ScreenGui
+
+        local MainCorner = Instance.new("UICorner")
+        MainCorner.CornerRadius = UDim.new(0, 8)
+        MainCorner.Parent = Main
+
+        local Avatar = Instance.new("ImageLabel")
+        Avatar.Size = UDim2.new(0, 40, 0, 40)
+        Avatar.Position = UDim2.new(0, 10, 0, 20)
+        Avatar.BackgroundTransparency = 1
+        Avatar.Image = thumb
+        Avatar.Parent = Main
+
+        local AvatarCorner = Instance.new("UICorner")
+        AvatarCorner.CornerRadius = UDim.new(1, 0)
+        AvatarCorner.Parent = Avatar
+
+        local Title = Instance.new("TextLabel")
+        Title.Size = UDim2.new(1, -60, 0, 20)
+        Title.Position = UDim2.new(0, 55, 0, 10)
+        Title.BackgroundTransparency = 1
+        Title.Text = "Друг зашёл: " .. player.Name
+        Title.TextColor3 = Color3.fromRGB(255, 200, 50)
+        Title.Font = Enum.Font.GothamBold
+        Title.TextSize = 13
+        Title.TextXAlignment = Enum.TextXAlignment.Left
+        Title.Parent = Main
+
+        local Text = Instance.new("TextLabel")
+        Text.Size = UDim2.new(1, -60, 0, 20)
+        Text.Position = UDim2.new(0, 55, 0, 30)
+        Text.BackgroundTransparency = 1
+        Text.Text = "Не хотите ли вы его засейвить?"
+        Text.TextColor3 = Color3.fromRGB(200, 200, 200)
+        Text.Font = Enum.Font.Gotham
+        Text.TextSize = 11
+        Text.TextXAlignment = Enum.TextXAlignment.Left
+        Text.Parent = Main
+
+        local YesBtn = Instance.new("TextButton")
+        YesBtn.Size = UDim2.new(0, 60, 0, 20)
+        YesBtn.Position = UDim2.new(0, 55, 1, -25)
+        YesBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+        YesBtn.Text = "Да"
+        YesBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        YesBtn.Font = Enum.Font.GothamBold
+        YesBtn.TextSize = 10
+        YesBtn.Parent = Main
+
+        local YesCorner = Instance.new("UICorner")
+        YesCorner.CornerRadius = UDim.new(0, 4)
+        YesCorner.Parent = YesBtn
+
+        local NoBtn = Instance.new("TextButton")
+        NoBtn.Size = UDim2.new(0, 60, 0, 20)
+        NoBtn.Position = UDim2.new(0, 125, 1, -25)
+        NoBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+        NoBtn.Text = "Нет"
+        NoBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        NoBtn.Font = Enum.Font.GothamBold
+        NoBtn.TextSize = 10
+        NoBtn.Parent = Main
+
+        local NoCorner = Instance.new("UICorner")
+        NoCorner.CornerRadius = UDim.new(0, 4)
+        NoCorner.Parent = NoBtn
+
+        YesBtn.MouseButton1Click:Connect(function()
+            savedPlayers[player.Name] = true
+            updateSaveButton()
+            createDomeForPlayer(player)
+            ScreenGui:Destroy()
+        end)
+
+        NoBtn.MouseButton1Click:Connect(function()
+            ScreenGui:Destroy()
+        end)
+
+        Main.Position = UDim2.new(1, 20, 0, 20)
+        TweenService:Create(Main, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            Position = UDim2.new(1, -300, 0, 20)
+        }):Play()
+
+        task.delay(10, function()
+            if ScreenGui then ScreenGui:Destroy() end
+        end)
+    end
+end
+
+for _, p in pairs(plrs:GetPlayers()) do
+    if p ~= lplr then
+        task.spawn(notifyFriend, p)
+    end
+end
+
+plrs.PlayerAdded:Connect(function(player)
+    task.spawn(notifyFriend, player)
+end)
+
+-- ===== ОЧИСТКА ИГРОКОВ =====
+local function isPlayerOnServer(name)
+    for _, p in pairs(plrs:GetPlayers()) do
+        if p.Name == name then return true end
+    end
+    return false
+end
+
+local function cleanupMissingPlayers()
+    for name, _ in pairs(savedPlayers) do
+        if not isPlayerOnServer(name) then
+            savedPlayers[name] = nil
+            removeDome(name)
+        end
+    end
+    for name, _ in pairs(selectedForKill) do
+        if not isPlayerOnServer(name) then
+            selectedForKill[name] = nil
+        end
+    end
+end
+
+cleanupMissingPlayers()
+
+-- ===== ОСТАЛЬНАЯ ЛОГИКА =====
+local function isAnyPlayerPart(p)
+    for _, plr in pairs(plrs:GetPlayers()) do
+        if plr.Character then
+            if p:IsDescendantOf(plr.Character) or p.Parent == plr.Character then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function isNearLocalPlayer(p)
+    if not lplr.Character then return false end
+    local root = lplr.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    return (p.Position - root.Position).Magnitude < 20
+end
+
+local function isValidPart(p)
+    if not p:IsA("BasePart") then return false end
+    if p.Anchored then return false end
+    if not p:IsDescendantOf(workspace) then return false end
+    if isAnyPlayerPart(p) then return false end
+    return true
+end
+
+local function collectParts()
+    parts = {}
+    for _, p in pairs(workspace:GetDescendants()) do
+        if isValidPart(p) and not table.find(parts, p) then
+            table.insert(parts, p)
+        end
+    end
+end
+collectParts()
+
+workspace.DescendantAdded:Connect(function(p)
+    task.wait(0.05)
+    if isValidPart(p) and not table.find(parts, p) then
+        table.insert(parts, p)
+    end
+end)
+
+workspace.DescendantRemoving:Connect(function(p)
+    local i = table.find(parts, p)
+    if i then table.remove(parts, i) end
+end)
+
+local function getTargetPlayer(name)
+    if not name or name == "" then return nil end
+    local lowerTarget = name:lower()
+    for _, p in pairs(plrs:GetPlayers()) do
+        if p ~= lplr then
+            if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                if not table.find(blacklist, p.Name) and not table.find(saveOnlyBlacklist, p.Name) then
+                    if p.Name:lower():sub(1, #lowerTarget) == lowerTarget or p.DisplayName:lower():sub(1, #lowerTarget) == lowerTarget then
+                        return p
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function getAllPlayers()
+    local allPlayers = {}
+    if next(selectedForKill) ~= nil then
+        for name, _ in pairs(selectedForKill) do
+            local p = getTargetPlayer(name)
+            if p then table.insert(allPlayers, p) end
+        end
+        return allPlayers
+    end
+
+    if targetName ~= "" then
+        local tp = getTargetPlayer(targetName)
+        if tp then return {tp} end
+        return {}
+    end
+    
+    for _, p in pairs(plrs:GetPlayers()) do
+        if p ~= lplr and p.Character and not table.find(blacklist, p.Name) and not table.find(saveOnlyBlacklist, p.Name) and not savedPlayers[p.Name] then
+            local troot = p.Character:FindFirstChild("HumanoidRootPart")
+            if troot then
+                table.insert(allPlayers, p)
+            end
+        end
+    end
+    return allPlayers
+end
+
+local function start()
+    if connection then return end
+    connection = rs.Heartbeat:Connect(function()
+        -- Обновляем позиции куполов
+        for name, dome in pairs(activeDomes) do
+            local player = dome.player
+            if player and player.Character then
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local pos = hrp.Position
+                    if dome.visual then dome.visual.CFrame = CFrame.new(pos) end
+                    if dome.physical then dome.physical.CFrame = CFrame.new(pos) end
+                end
+            end
+        end
+
+        -- Основная логика полёта блоков
+        for _, p in pairs(parts) do
+            if p and p.Parent and not p.Anchored and isNearLocalPlayer(p) then
+                p.CanCollide = false
+            end
+        end
+        
+        local currentTime = tick()
+        local allPlayers = getAllPlayers()
+
+        if #allPlayers > 0 then
+            if currentTime - lastRotation >= rotationspeed then
+                currentTargetIndex = currentTargetIndex + 1
+                if currentTargetIndex > #allPlayers then
+                    currentTargetIndex = 1
+                end
+                lastRotation = currentTime
+            end
+
+            if split then
+                local numTargets = math.min(maxtargets, #allPlayers)
+                local targets = {}
+
+                for i = 1, numTargets do
+                    local idx = ((currentTargetIndex + i - 2) % #allPlayers) + 1
+                    local t = allPlayers[idx]
+                    if t and t.Character then
+                        local root = t.Character:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            table.insert(targets, root)
+                        end
+                    end
+                end
+
+                for i, p in pairs(parts) do
+                    if p and p.Parent and not p.Anchored and #targets > 0 then
+                        if isNearLocalPlayer(p) then continue end
+                        local targetIdx = ((i - 1) % #targets) + 1
+                        local center = targets[targetIdx].Position
+                        local pos = p.Position
+                        local ang = math.atan2(pos.Z - center.Z, pos.X - center.X)
+                        local nang = ang + math.rad(10)
+                        local tpos = Vector3.new(
+                            center.X + math.cos(nang) * 10,
+                            center.Y + (0.1 * (math.abs(math.sin((pos.Y - center.Y) / 0.1)))),
+                            center.Z + math.sin(nang) * 10
+                        )
+                        p.Velocity = (tpos - p.Position).Unit * 1000
+                    end
+                end
+            else
+                local t = allPlayers[currentTargetIndex]
+                if t and t.Character then
+                    local root = t.Character:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        local center = root.Position
+                        for _, p in pairs(parts) do
+                            if p and p.Parent and not p.Anchored then
+                                if isNearLocalPlayer(p) then continue end
+                                local pos = p.Position
+                                local ang = math.atan2(pos.Z - center.Z, pos.X - center.X)
+                                local nang = ang + math.rad(10)
+                                local tpos = Vector3.new(
+                                    center.X + math.cos(nang) * 10,
+                                    center.Y + (0.1 * (math.abs(math.sin((pos.Y - center.Y) / 0.1)))),
+                                    center.Z + math.sin(nang) * 10
+                                )
+                                p.Velocity = (tpos - p.Position).Unit * 1000
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Проверка куполов (только для тех блоков, которые внутри или касаются)
+        for name, dome in pairs(activeDomes) do
+            if dome.physical and dome.physical.Parent then
+                local center = dome.physical.Position
+                local radius = 5.5
+                for _, p in pairs(parts) do
+                    if p and p.Parent and not p.Anchored then
+                        local dist = (p.Position - center).Magnitude
+                        if dist <= radius then
+                            local direction = (p.Position - center).Unit
+                            if direction.Magnitude == 0 then direction = Vector3.new(0, 1, 0) end
+                            p.Velocity = direction * 5000 + Vector3.new(0, 5000, 0)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    print("[FE Kill] Enabled")
+end
+
+local function stop()
+    if connection then
+        connection:Disconnect()
+        connection = nil
+        currentTargetIndex = 1
+        lastRotation = 0
+    end
+    for _, p in pairs(parts) do
+        if p and p.Parent and not p.Anchored and p:IsDescendantOf(workspace) then
+            p.Velocity = Vector3.zero
+            p.RotVelocity = Vector3.zero
+        end
+    end
+    for name, dome in pairs(activeDomes) do
+        if dome.visual then dome.visual:Destroy() end
+        if dome.physical then dome.physical:Destroy() end
+    end
+    activeDomes = {}
+    print("[FE Kill] Disabled")
+end
+
+lplr.Chatted:Connect(function(msg)
+    local cmd = msg:lower()
+    
+    if cmd == "/died off" then
+        if enabled then
+            enabled = false
+            stop()
+        end
+        return
+    end
+    
+    if cmd == "/died all" then
+        targetName = ""
+        if not enabled then
+            enabled = true
+            start()
+        else
+            stop()
+            start()
+        end
+        return
+    end
+    
+    local nickNoQuote = cmd:match('^/died%s+(.+)$')
+    if nickNoQuote and nickNoQuote ~= "all" and nickNoQuote ~= "off" then
+        targetName = nickNoQuote
+        if not enabled then
+            enabled = true
+            start()
+        else
+            stop()
+            start()
+        end
+        return
+    end
+end)
+
+plrs.PlayerRemoving:Connect(function(player)
+    if savedPlayers[player.Name] then
+        savedPlayers[player.Name] = nil
+        updateSaveButton()
+        removeDome(player.Name)
+    end
+    if selectedForKill[player.Name] then
+        selectedForKill[player.Name] = nil
+    end
+end)
+
+-- ===== ИНТЕРФЕЙС =====
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "FEGui"
+ScreenGui.Parent = lplr:WaitForChild("PlayerGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.DisplayOrder = 999
+
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Size = UDim2.new(0, 32, 0, 32)
+ToggleBtn.Position = UDim2.new(0, 10, 0.5, -16)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+ToggleBtn.Text = "🎃"
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.TextScaled = false
+ToggleBtn.TextSize = 13
+ToggleBtn.BorderSizePixel = 0
+ToggleBtn.Parent = ScreenGui
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(1, 0)
+ToggleCorner.Parent = ToggleBtn
+
+local ToggleStroke = Instance.new("UIStroke")
+ToggleStroke.Color = Color3.fromRGB(60, 60, 60)
+ToggleStroke.Thickness = 1
+ToggleStroke.Parent = ToggleBtn
+
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0, 250, 0, 200)
+Main.Position = UDim2.new(0.5, -125, 0.5, -100)
+Main.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+Main.BorderSizePixel = 0
+Main.ClipsDescendants = true
+Main.Visible = false
+Main.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.Parent = Main
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -70, 0, 30)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "FE Kill"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 14
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Main
+
+local MinimizeBtn = Instance.new("TextButton")
+MinimizeBtn.Size = UDim2.new(0, 25, 0, 25)
+MinimizeBtn.Position = UDim2.new(1, -60, 0, 2.5)
+MinimizeBtn.BackgroundTransparency = 1
+MinimizeBtn.Text = "−"
+MinimizeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+MinimizeBtn.TextSize = 18
+MinimizeBtn.Font = Enum.Font.GothamBold
+MinimizeBtn.BorderSizePixel = 0
+MinimizeBtn.Parent = Main
+
+local CloseBtn = Instance.new("ImageButton")
+CloseBtn.Size = UDim2.new(0, 20, 0, 20)
+CloseBtn.Position = UDim2.new(1, -30, 0, 5)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Image = "rbxassetid://83277910885129"
+CloseBtn.ImageColor3 = Color3.fromRGB(200, 200, 200)
+CloseBtn.Parent = Main
+
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, -10, 1, -40)
+Scroll.Position = UDim2.new(0, 5, 0, 35)
+Scroll.BackgroundTransparency = 1
+Scroll.ScrollBarThickness = 6
+Scroll.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 120)
+Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+Scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+Scroll.Parent = Main
+
+local ListLayout = Instance.new("UIListLayout")
+ListLayout.Padding = UDim.new(0, 5)
+ListLayout.Parent = Scroll
+
+local function createButton(name)
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(1, 0, 0, 35)
+    Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    Btn.Text = name
+    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Btn.Font = Enum.Font.Gotham
+    Btn.TextSize = 12
+    Btn.Parent = Scroll
+
+    local BtnCorner = Instance.new("UICorner")
+    BtnCorner.CornerRadius = UDim.new(0, 6)
+    BtnCorner.Parent = Btn
+
+    return Btn
+end
+
+local DiedAllBtn = createButton("Died all")
+local DiedNickBtn = createButton("Died \"nicname\"")
+local DiedOffBtn = createButton("Died off")
+SaveNickBtn = createButton("Save \"Nicname\"")
+
+if next(savedPlayers) ~= nil then
+    updateSaveButton()
+end
+
+local isMenuOpen = false
+
+local toggleDragging = false
+local toggleMoved = false
+local toggleStartPos, toggleDragStart
+
+ToggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        toggleDragging = true
+        toggleMoved = false
+        toggleDragStart = input.Position
+        toggleStartPos = ToggleBtn.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                toggleDragging = false
+                if not toggleMoved then
+                    isMenuOpen = not isMenuOpen
+                    if isMenuOpen then
+                        ToggleBtn.Text = "🎉"
+                        Main.Visible = true
+                        Main.Size = UDim2.new(0, 250, 0, 0)
+                        Main.Position = UDim2.new(0.5, -125, 0.5, 0)
+                        TweenService:Create(Main, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                            Size = UDim2.new(0, 250, 0, 200),
+                            Position = UDim2.new(0.5, -125, 0.5, -100)
+                        }):Play()
+                    else
+                        ToggleBtn.Text = "🎃"
+                        local tween = TweenService:Create(Main, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+                            Size = UDim2.new(0, 250, 0, 0),
+                            Position = UDim2.new(0.5, -125, 0.5, 0)
+                        })
+                        tween:Play()
+                        tween.Completed:Connect(function() Main.Visible = false end)
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if toggleDragging and input.UserInputType == Enum.UserInputType.Touch then
+        local delta = input.Position - toggleDragStart
+        if math.abs(delta.X) > 5 or math.abs(delta.Y) > 5 then
+            toggleMoved = true
+        end
+        ToggleBtn.Position = UDim2.new(
+            toggleStartPos.X.Scale, toggleStartPos.X.Offset + delta.X,
+            toggleStartPos.Y.Scale, toggleStartPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        toggleDragging = false
+    end
+end)
+
+MinimizeBtn.MouseButton1Click:Connect(function()
+    isMenuOpen = false
+    ToggleBtn.Text = "🎃"
+    local tween = TweenService:Create(Main, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+        Size = UDim2.new(0, 250, 0, 0),
+        Position = UDim2.new(0.5, -125, 0.5, 0)
+    })
+    tween:Play()
+    tween.Completed:Connect(function() Main.Visible = false end)
+end)
+
+CloseBtn.MouseButton1Click:Connect(function()
+    if enabled then
+        enabled = false
+        stop()
+    end
+    ScreenGui:Destroy()
+    print("[FE Kill] Полностью выключен пользователем.")
+end)
+
+local function makeDraggable(frame)
+    local dragging, dragStart, startPos
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+end
+makeDraggable(Main)
+
+DiedAllBtn.MouseButton1Click:Connect(function()
+    targetName = ""
+    selectedForKill = {}
+    if not enabled then
+        enabled = true
+        start()
+        DiedAllBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+    end
+end)
+
+DiedOffBtn.MouseButton1Click:Connect(function()
+    if enabled then
+        enabled = false
+        stop()
+        DiedAllBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        DiedNickBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    end
+    DiedOffBtn.BackgroundColor3 = Color3.fromRGB(200, 30, 30)
+    task.wait(0.5)
+    DiedOffBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+end)
+
+-- ===== СИСТЕМА МУЛЬТИВЫБОРА =====
+local function openMultiSelector(actionType)
+    local SelectorGui = Instance.new("ScreenGui")
+    SelectorGui.Name = "PlayerSelector"
+    SelectorGui.Parent = lplr.PlayerGui
+    SelectorGui.ResetOnSpawn = false
+    SelectorGui.DisplayOrder = 1000
+
+    local Background = Instance.new("Frame")
+    Background.Size = UDim2.new(0, 250, 0, 300)
+    Background.Position = UDim2.new(0.5, -125, 0.5, -150)
+    Background.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    Background.Parent = SelectorGui
+
+    local BgCorner = Instance.new("UICorner")
+    BgCorner.CornerRadius = UDim.new(0, 10)
+    BgCorner.Parent = Background
+
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, 0, 0, 30)
+    Title.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    Title.Text = actionType == "save" and "Сохранение (нажми для вкл/выкл)" or "Выбор цели (нажми для вкл/выкл)"
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Title.Font = Enum.Font.GothamBold
+    Title.TextSize = 14
+    Title.Parent = Background
+
+    local TitleCorner = Instance.new("UICorner")
+    TitleCorner.CornerRadius = UDim.new(0, 10)
+    TitleCorner.Parent = Title
+
+    local BackBtn = Instance.new("TextButton")
+    BackBtn.Size = UDim2.new(0, 24, 0, 24)
+    BackBtn.Position = UDim2.new(0, 5, 0, 3)
+    BackBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    BackBtn.Text = "←"
+    BackBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    BackBtn.TextSize = 16
+    BackBtn.Font = Enum.Font.GothamBold
+    BackBtn.BorderSizePixel = 0
+    BackBtn.Parent = Title
+
+    local BackCorner = Instance.new("UICorner")
+    BackCorner.CornerRadius = UDim.new(1, 0)
+    BackCorner.Parent = BackBtn
+
+    BackBtn.MouseButton1Click:Connect(function()
+        SelectorGui:Destroy()
+        Main.Visible = true
+        Main.Size = UDim2.new(0, 250, 0, 200)
+        Main.Position = UDim2.new(0.5, -125, 0.5, -100)
+        isMenuOpen = true
+        ToggleBtn.Text = "🎉"
+    end)
+
+    local Scroll = Instance.new("ScrollingFrame")
+    Scroll.Size = UDim2.new(1, -10, 1, -40)
+    Scroll.Position = UDim2.new(0, 5, 0, 35)
+    Scroll.BackgroundTransparency = 1
+    Scroll.ScrollBarThickness = 4
+    Scroll.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 100)
+    Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    Scroll.Parent = Background
+
+    local List = Instance.new("UIListLayout")
+    List.Padding = UDim.new(0, 5)
+    List.Parent = Scroll
+
+    for _, p in pairs(plrs:GetPlayers()) do
+        if p ~= lplr then
+            local show = true
+            if table.find(blacklist, p.Name) then
+                show = false
+            elseif actionType == "kill" and table.find(saveOnlyBlacklist, p.Name) then
+                show = false
+            end
+
+            if show then
+                local Btn = Instance.new("TextButton")
+                Btn.Size = UDim2.new(1, 0, 0, 40)
+                local isSelected = (actionType == "save" and savedPlayers[p.Name]) or (actionType == "kill" and selectedForKill[p.Name])
+                Btn.BackgroundColor3 = isSelected and Color3.fromRGB(0, 100, 200) or Color3.fromRGB(35, 35, 35)
+                Btn.Text = ""
+                Btn.Parent = Scroll
+
+                local BtnCorner = Instance.new("UICorner")
+                BtnCorner.CornerRadius = UDim.new(0, 6)
+                BtnCorner.Parent = Btn
+
+                local Avatar = Instance.new("ImageLabel")
+                Avatar.Size = UDim2.new(0, 30, 0, 30)
+                Avatar.Position = UDim2.new(0, 5, 0, 5)
+                Avatar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+                Avatar.Image = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. p.UserId .. "&width=150&height=150&format=png"
+                Avatar.Parent = Btn
+
+                local AvatarCorner = Instance.new("UICorner")
+                AvatarCorner.CornerRadius = UDim.new(1, 0)
+                AvatarCorner.Parent = Avatar
+
+                local NameLbl = Instance.new("TextLabel")
+                NameLbl.Size = UDim2.new(1, -45, 1, 0)
+                NameLbl.Position = UDim2.new(0, 40, 0, 0)
+                NameLbl.BackgroundTransparency = 1
+                NameLbl.Text = p.Name
+                NameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+                NameLbl.Font = Enum.Font.Gotham
+                NameLbl.TextSize = 12
+                NameLbl.TextXAlignment = Enum.TextXAlignment.Left
+                NameLbl.Parent = Btn
+
+                Btn.MouseButton1Click:Connect(function()
+                    if actionType == "save" then
+                        if savedPlayers[p.Name] then
+                            savedPlayers[p.Name] = nil
+                            Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+                            removeDome(p.Name)
+                        else
+                            savedPlayers[p.Name] = true
+                            Btn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+                            createDomeForPlayer(p)
+                        end
+                        updateSaveButton()
+                    else
+                        if selectedForKill[p.Name] then
+                            selectedForKill[p.Name] = nil
+                            Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+                        else
+                            selectedForKill[p.Name] = true
+                            Btn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+                        end
+                        local killList = {}
+                        for name, _ in pairs(selectedForKill) do table.insert(killList, name) end
+                        if #killList > 0 then
+                            local display = killList[1] or ""
+                            if #killList > 1 then display = display .. ", " .. (killList[2] or "") end
+                            if #killList > 2 then display = display .. " и тд" end
+                            DiedNickBtn.Text = "Died: " .. display
+                            DiedNickBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+                            if not enabled then
+                                enabled = true
+                                start()
+                            end
+                        else
+                            DiedNickBtn.Text = "Died \"nicname\""
+                            DiedNickBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+                        end
+                    end
+                end)
+            end
+        end
+    end
+end
+
+DiedNickBtn.MouseButton1Click:Connect(function()
+    Main.Visible = false
+    openMultiSelector("kill")
+end)
+
+SaveNickBtn.MouseButton1Click:Connect(function()
+    Main.Visible = false
+    openMultiSelector("save")
+end)
